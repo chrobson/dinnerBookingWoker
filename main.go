@@ -7,8 +7,12 @@ import (
 	"time"
 )
 
-// Define the URL for fetching availability data
-var url = "https://book.dinnerbooking.com/pl/pl-PL/time_days/calendar_days/3203/1/2/2023-10-01/2023-12-31.json"
+const (
+	url              = "https://book.dinnerbooking.com/pl/pl-PL/time_days/calendar_days/3203/1/2/2023-10-01/2023-12-31.json"
+	retryInterval    = 60 * time.Second
+	timeLayout       = "2006-01-02"
+	closedRestaurant = 1
+)
 
 // Availability represents the availability data structure
 type Availability struct {
@@ -37,7 +41,7 @@ func checkAvailability() {
 		response, err := http.Get(url)
 		if err != nil {
 			fmt.Printf("An error occurred: %v\n", err)
-			time.Sleep(60 * time.Second) // Sleep for 60 seconds before trying again
+			time.Sleep(retryInterval)
 			continue
 		}
 		defer response.Body.Close()
@@ -45,35 +49,33 @@ func checkAvailability() {
 		// Parse the JSON response into a Response struct
 		var jsonResponse Response
 		decoder := json.NewDecoder(response.Body)
-		err = decoder.Decode(&jsonResponse)
-		if err != nil {
+		if err := decoder.Decode(&jsonResponse); err != nil {
 			fmt.Printf("Error decoding JSON: %v\n", err)
-			time.Sleep(60 * time.Second) // Sleep for 60 seconds before trying again
+			time.Sleep(retryInterval)
 			continue
 		}
 
 		// Iterate through the availability data and display information
 		for _, availability := range jsonResponse.Days {
-			dateStr := availability.TimeDay.Day
-			closed := availability.TimeDay.Closed
-			availabilityStatus := availability.Booking.AvailabilityStatus
-
-			// Skip days where the restaurant is closed
-			if closed == 1 {
-				continue // Skip to the next day
+			if availability.TimeDay.Closed == closedRestaurant {
+				continue // Skip closed restaurant days
 			}
 
-			if availabilityStatus == 0 || availabilityStatus == 2 {
-				continue // Skip to the next day
-			} else if availabilityStatus == 1 {
+			dateStr := availability.TimeDay.Day
+			availabilityStatus := availability.Booking.AvailabilityStatus
+
+			switch availabilityStatus {
+			case 0, 2:
+				continue // Skip days with no available tables or unknown status
+			case 1:
 				fmt.Printf("On %s: Tables are available.\n", dateStr)
-			} else {
+			default:
 				fmt.Printf("On %s: Availability status unknown.\n", dateStr)
 			}
 		}
 
-		// Sleep for 60 seconds (1 minute) before checking again
-		time.Sleep(60 * time.Second)
+		// Sleep before checking again
+		time.Sleep(retryInterval)
 	}
 }
 
